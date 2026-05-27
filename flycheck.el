@@ -517,6 +517,23 @@ highlight them according to `flycheck-highlighting-mode'."
                  (const :tag "Do not indicate" nil))
   :safe #'symbolp)
 
+(defcustom flycheck-indication-mode-continuation t
+  "Whether to show continuation indicators on wrapped error lines.
+
+When non-nil and `flycheck-indication-mode' is set, Flycheck shows
+a continuation indicator in the fringe or margin on visual
+continuation lines that fall within an error overlay.
+
+When nil, only the main indicator (from `before-string') marks
+the error start; no continuation indicator is shown on subsequent
+visual lines.  This avoids a conflict where the continuation
+indicator in `wrap-prefix' takes priority over the main indicator
+in `before-string' when both land on the same visual line (e.g.
+when `word-wrap' pushes the error to the next visual line)."
+  :group 'flycheck
+  :type 'boolean
+  :safe #'booleanp)
+
 (defcustom flycheck-highlighting-mode 'symbols
   "The highlighting mode for Flycheck errors and warnings.
 
@@ -4766,28 +4783,33 @@ function resolves `conditional' style specifications."
       (setf (overlay-get overlay 'before-string)
             (flycheck-error-level-make-indicator
              level flycheck-indication-mode))
-      (setf (overlay-get overlay 'wrap-prefix)
-            (flycheck-error-level-make-indicator
-             level flycheck-indication-mode t))
+      (when flycheck-indication-mode-continuation
+        (setf (overlay-get overlay 'wrap-prefix)
+              (flycheck-error-level-make-indicator
+               level flycheck-indication-mode t)))
       ;; Preserve existing text-property prefixes so the overlay doesn't
       ;; clobber indentation set by other modes.
       ;;
       ;; line-prefix: copy the text property onto the overlay unchanged
       ;; (e.g. from org-indent-mode).
       ;;
-      ;; wrap-prefix: compose the flycheck fringe indicator with the
+      ;; wrap-prefix: when `flycheck-indication-mode-continuation' is
+      ;; non-nil, compose the flycheck fringe indicator with the
       ;; existing value (e.g. from visual-wrap-prefix-mode).  The fringe
       ;; indicator uses a `display' property for `!' that directly
       ;; renders in the fringe without producing any character in the
       ;; text area.  This effectively-zero-width character is composed
-      ;; by concatenation with the preexisting wrap prefix.
+      ;; by concatenation with the preexisting wrap prefix.  When
+      ;; `flycheck-indication-mode-continuation' is nil, copy the
+      ;; existing text property onto the overlay unchanged so the
+      ;; overlay doesn't clobber it.
       ;;
       ;; Per the Elisp manual ("Properties with Special Meanings"),
-      ;; `wrap-prefix' may be a string, an image, or a stretch spec (`:width' or
-      ;; `:align-to').  When the preexisting value is a string (e.g. a repeated
-      ;; comment prefix like "% "), concatenate it directly; otherwise wrap it
-      ;; in a propertized character via its `display' property so it can be
-      ;; concatenated.
+      ;; `wrap-prefix' may be a string, an image, or a stretch spec
+      ;; (`:width' or `:align-to').  When the preexisting value is a
+      ;; string (e.g. a repeated comment prefix like "% "), concatenate
+      ;; it directly; otherwise wrap it in a propertized character via
+      ;; its `display' property so it can be concatenated.
       ;;
       ;; Without this, an error overlay on the first character of a
       ;; soft-wrapped visual continuation line replaces the indentation
@@ -4803,10 +4825,12 @@ function resolves `conditional' style specifications."
               (setf (overlay-get overlay 'line-prefix) existing-lp))
             (when existing-wp
               (setf (overlay-get overlay 'wrap-prefix)
-                    (concat (overlay-get overlay 'wrap-prefix)
-                            (if (stringp existing-wp)
-                                existing-wp
-                              (propertize " " 'display existing-wp)))))))))
+                    (if flycheck-indication-mode-continuation
+                        (concat (overlay-get overlay 'wrap-prefix)
+                                (if (stringp existing-wp)
+                                    existing-wp
+                                  (propertize " " 'display existing-wp)))
+                      existing-wp)))))))
     (pcase (flycheck--highlighting-style err)
       ((or `nil (guard (null flycheck-highlighting-mode)))
        ;; Erase the highlighting
